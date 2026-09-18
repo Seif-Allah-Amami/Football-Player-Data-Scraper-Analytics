@@ -31,8 +31,7 @@ The collected dataset can later be used for football analytics, feature engineer
 football-player-data-scraper/
 │
 ├── scraper.py
-├── data/
-│   └── players.csv
+│── ballon_dor_2025_26_ml_ready.csv
 ├── requirements.txt
 ├── .gitignore
 └── README.md
