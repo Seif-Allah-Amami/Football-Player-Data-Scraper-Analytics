@@ -5,6 +5,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+
 CANDIDATES = [
     {"player": "Kylian Mbappé", "url": "https://www.footmercato.net/joueur/kylian-mbappe/statistique"},
     {"player": "Vinicius Junior", "url": "https://www.footmercato.net/joueur/vinicius-jr/statistique"},
@@ -27,6 +28,7 @@ CANDIDATES = [
 ]
 
 CSV_PATH = "ballon_dor_2025_26_ml_ready.csv"
+CLEAN_CSV_PATH = "ballon_dor_2025_26_clean.csv"
 BASE_FIELDS = [
     "player",
     "season",
@@ -44,6 +46,36 @@ BASE_FIELDS = [
     "position_rows",
     "goal_details",
     "trophies_2025_26",
+]
+
+CLEAN_FIELDS = [
+    "player",
+    "season",
+    "matches",
+    "starts",
+    "sub_in",
+    "sub_out",
+    "goals",
+    "assists",
+    "yellow_cards",
+    "red_cards",
+    "goals_per_match",
+    "assists_per_match",
+    "goal_contributions_per_match",
+    "champions_league_matches",
+    "champions_league_goals",
+    "champions_league_assists",
+    "domestic_matches",
+    "domestic_goals",
+    "domestic_assists",
+    "left_foot_goals",
+    "right_foot_goals",
+    "header_goals",
+    "penalty_goals",
+    "inside_box_goals",
+    "outside_box_goals",
+    "free_kick_goals",
+    "trophies_count",
 ]
 
 
@@ -88,6 +120,88 @@ def parse_number(value):
         return value
     number = match.group(0).replace(",", ".")
     return float(number) if "." in number else int(number)
+
+
+def as_number(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def json_list(value):
+    try:
+        parsed = json.loads(value or "[]")
+        return parsed if isinstance(parsed, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+def sum_field(records, field):
+    return sum(as_number(record.get(field)) for record in records)
+
+
+def clean_dataset():
+    with open(CSV_PATH, newline="", encoding="utf-8") as source_file:
+        source_rows = csv.DictReader(source_file)
+
+        with open(CLEAN_CSV_PATH, "w", newline="", encoding="utf-8") as clean_file:
+            writer = csv.DictWriter(clean_file, fieldnames=CLEAN_FIELDS)
+            writer.writeheader()
+
+            for source in source_rows:
+                if source.get("status") != "ok" or source.get("season") != "2025/26":
+                    continue
+
+                matches = as_number(source.get("matches"))
+                goals = as_number(source.get("goals"))
+                assists = as_number(source.get("assists"))
+                competitions = json_list(source.get("competition_rows"))
+                goal_details = json_list(source.get("goal_details"))
+                champions_league = [
+                    item for item in competitions
+                    if "champions" in str(item.get("competition", "")).lower()
+                ]
+                domestic = [
+                    item for item in competitions
+                    if "champions" not in str(item.get("competition", "")).lower()
+                ]
+                goal_map = {
+                    item.get("type", ""): as_number(item.get("goals"))
+                    for item in goal_details
+                }
+
+                writer.writerow(
+                    {
+                        "player": source.get("player", ""),
+                        "season": source.get("season", ""),
+                        "matches": matches,
+                        "starts": as_number(source.get("starts")),
+                        "sub_in": as_number(source.get("sub_in")),
+                        "sub_out": as_number(source.get("sub_out")),
+                        "goals": goals,
+                        "assists": assists,
+                        "yellow_cards": as_number(source.get("yellow_cards")),
+                        "red_cards": as_number(source.get("red_cards")),
+                        "goals_per_match": round(goals / matches, 4) if matches else 0,
+                        "assists_per_match": round(assists / matches, 4) if matches else 0,
+                        "goal_contributions_per_match": round((goals + assists) / matches, 4) if matches else 0,
+                        "champions_league_matches": sum_field(champions_league, "matches"),
+                        "champions_league_goals": sum_field(champions_league, "goals"),
+                        "champions_league_assists": sum_field(champions_league, "assists"),
+                        "domestic_matches": sum_field(domestic, "matches"),
+                        "domestic_goals": sum_field(domestic, "goals"),
+                        "domestic_assists": sum_field(domestic, "assists"),
+                        "left_foot_goals": goal_map.get("Du pied gauche", 0),
+                        "right_foot_goals": goal_map.get("Du pied droit", 0),
+                        "header_goals": goal_map.get("De la tête", 0),
+                        "penalty_goals": goal_map.get("Sur pénalty", 0),
+                        "inside_box_goals": goal_map.get("De l'intérieur de la surface", 0),
+                        "outside_box_goals": goal_map.get("De l'extérieur de la surface", 0),
+                        "free_kick_goals": goal_map.get("Sur coup franc direct", 0),
+                        "trophies_count": len(json_list(source.get("trophies_2025_26"))),
+                    }
+                )
 
 
 def extract_table_stats(table, row_label):
@@ -248,6 +362,8 @@ def main():
 
     print(f"Saved {CSV_PATH}")
     print(f"Processed {len(CANDIDATES)} candidates")
+    clean_dataset()
+    print(f"Saved {CLEAN_CSV_PATH}")
 
 
 if __name__ == "__main__":
